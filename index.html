@@ -1978,9 +1978,13 @@
             const rimCyan = new THREE.DirectionalLight(0x00d4ff, 1.15);
             rimCyan.position.set(-4, 2.5, -3);
             scene.add(rimCyan);
-            const fillPurple = new THREE.DirectionalLight(0x6c5ce7, 0.85);
+            const fillPurple = new THREE.DirectionalLight(0x6c5ce7, 0.95);
             fillPurple.position.set(4, 1.5, -2.5);
             scene.add(fillPurple);
+            /* Sweeping accent light for a cinematic moving rim */
+            const sweepLight = new THREE.DirectionalLight(0xff2d78, 0.4);
+            sweepLight.position.set(5, 3.2, -2.5);
+            scene.add(sweepLight);
             /* ---------- Ground: soft shadow + neon stage ---------- */
             const GROUND_Y = -1.5;
             const shadowCatcher = new THREE.Mesh(
@@ -2050,6 +2054,38 @@
             charGroup.add(haloSprite);
             const rig = new THREE.Group();
             charGroup.add(rig);
+            /* ---------- Cinematic light cone ---------- */
+            const lightCone = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.35, 2.4, 6.6, 40, 1, true),
+                new THREE.MeshBasicMaterial({
+                    color: 0x9fdcff, transparent: true, opacity: 0.05,
+                    blending: THREE.AdditiveBlending, depthWrite: false,
+                    side: THREE.DoubleSide
+                })
+            );
+            lightCone.position.set(0, 1.75, 0);
+            charGroup.add(lightCone);
+            /* ---------- Floating sparkle particles ---------- */
+            const SPARK_COUNT = 70;
+            const sparkGeo = new THREE.BufferGeometry();
+            const sparkPos = new Float32Array(SPARK_COUNT * 3);
+            const sparkSpeeds = new Float32Array(SPARK_COUNT);
+            for (let i = 0; i < SPARK_COUNT; i++) {
+                const r = 0.6 + Math.random() * 2.1;
+                const a = Math.random() * Math.PI * 2;
+                sparkPos[i * 3] = Math.cos(a) * r;
+                sparkPos[i * 3 + 1] = -1.5 + Math.random() * 4.4;
+                sparkPos[i * 3 + 2] = Math.sin(a) * r;
+                sparkSpeeds[i] = 0.15 + Math.random() * 0.3;
+            }
+            sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+            const sparkles = new THREE.Points(sparkGeo, new THREE.PointsMaterial({
+                color: 0x7fe3ff, size: 0.045, map: makeGlowTexture('0,212,255'),
+                transparent: true, opacity: 0.8,
+                blending: THREE.AdditiveBlending, depthWrite: false,
+                sizeAttenuation: true
+            }));
+            charGroup.add(sparkles);
             /* ---------- Load the 3D character ---------- */
             const TARGET_HEIGHT = 3.0;
             const actions = {};
@@ -2107,7 +2143,7 @@
                 currentAction = next;
                 return true;
             }
-            let busy = false, nextSwitchAt = 3, lastDanceAt = 0;
+            let busy = false, nextSwitchAt = 3, lastDanceAt = 0, lastPick = null;
             /* ---------- Responsive placement (spotlight) ---------- */
             let baseX = 1.7, baseY = 0.0, layoutScale = 1;
             function layout() {
@@ -2146,7 +2182,14 @@
                 let scaleNow = 0.0001;
                 if (entranceAt) {
                     const p = Math.min((performance.now() - entranceAt) / 1400, 1);
-                    if (p >= 1) entranceDone = true;
+                    if (p >= 1 && !entranceDone) {
+                        entranceDone = true;
+                        if (actions['Wave']) {
+                            busy = true;
+                            crossTo('Wave', 0.4);
+                            nextSwitchAt = t + 6;
+                        }
+                    }
                     scaleNow = layoutScale * Math.max(easeOutBack(p), 0.0001);
                 }
                 charGroup.scale.setScalar(entranceAt ? scaleNow : 0.0001);
@@ -2159,11 +2202,28 @@
                 const pulse = 1 + Math.sin(t * 1.8) * 0.025;
                 ringA.scale.setScalar(pulse);
                 ringB.scale.setScalar(2 - pulse);
+                /* layered head-level parallax (upper body follows the cursor) */
+                rig.rotation.y += (mouseX * 0.1 - rig.rotation.y) * 0.05;
+                rig.rotation.x += (mouseY * 0.06 - rig.rotation.x) * 0.05;
+                /* cinematic sweep light, cone spin, rising sparkles */
+                const sweepAngle = t * 0.5;
+                sweepLight.position.set(Math.sin(sweepAngle) * 5, 3.2, -2.5 + Math.cos(sweepAngle) * 3);
+                sweepLight.intensity = 0.35 + 0.25 * Math.sin(t * 0.9);
+                lightCone.rotation.y = t * 0.12;
+                const sparkAttr = sparkles.geometry.attributes.position;
+                for (let i = 0; i < SPARK_COUNT; i++) {
+                    let sy = sparkAttr.getY(i) + sparkSpeeds[i] * dt;
+                    if (sy > 3.0) sy = -1.6;
+                    sparkAttr.setY(i, sy);
+                }
+                sparkAttr.needsUpdate = true;
                 if (modelReady && entranceDone && !busy && t > nextSwitchAt && funNames.length) {
                     busy = true;
-                    const pick = funNames[Math.floor(Math.random() * funNames.length)];
-                    if (crossTo(pick, 0.35)) {
-                        nextSwitchAt = t + 3.5 + Math.random() * 4;
+                    const options = funNames.length > 1 ? funNames.filter((nm) => nm !== lastPick) : funNames;
+                    const pick = options[Math.floor(Math.random() * options.length)];
+                    lastPick = pick;
+                    if (crossTo(pick, 0.3)) {
+                        nextSwitchAt = t + 2.8 + Math.random() * 3.5;
                     }
                 }
                 camera.position.x += (mouseX * 0.18 + 0.1 - camera.position.x) * 0.03;
@@ -2230,6 +2290,19 @@
                 busy = true;
                 nextSwitchAt = clock.elapsedTime + 4;
                 crossTo(name, 0.3);
+            });
+            /* Double-click easter egg: the character punches (or jumps) */
+            document.addEventListener('dblclick', (e) => {
+                if (reducedMotion || !modelReady) return;
+                if (e.target.closest && e.target.closest(
+                    'a,button,input,select,textarea,label,form,.nav-menu,.hamburger,.carousel-nav'
+                )) return;
+                const name = actions['Punch'] ? 'Punch' : (actions['Jump'] ? 'Jump' : funNames[0]);
+                if (!name) return;
+                lastDanceAt = performance.now();
+                busy = true;
+                nextSwitchAt = clock.elapsedTime + 4;
+                crossTo(name, 0.25);
             });
             layout();
             charGroup.position.set(baseX, baseY, 0);
