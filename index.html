@@ -226,7 +226,7 @@
         .hero-bg {
             position: absolute;
             inset: 0;
-            z-index: 0;
+            z-index: -1;
             pointer-events: none;
         }
         .hero-bg .grid-floor {
@@ -253,9 +253,9 @@
             50% { opacity: 0.9; }
         }
         .scene3d {
-            position: absolute;
+            position: fixed;
             inset: 0;
-            z-index: 1;
+            z-index: -1;
             pointer-events: none;
         }
         .scene3d canvas { display: block; opacity: 0; transition: opacity 1.2s ease; }
@@ -1229,7 +1229,6 @@
             <div class="grid-floor"></div>
             <div id="heroStars"></div>
         </div>
-        <div class="scene3d" id="scene3d" aria-hidden="true"></div>
         <div class="container hero-content">
             <div class="hero-text">
                 <div class="hero-badge">Open to GenAI Internships</div>
@@ -1255,6 +1254,8 @@
             <span>Scroll</span>
         </div>
     </section>
+    <!-- 3D character: fixed full-page background (visible in every section) -->
+    <div class="scene3d" id="scene3d" aria-hidden="true"></div>
     <!-- ============ TECH MARQUEE ============ -->
     <div class="marquee" aria-hidden="true">
         <div class="marquee-track" id="marqueeTrack">
@@ -2145,13 +2146,13 @@
             }
             let busy = false, nextSwitchAt = 3, lastDanceAt = 0, lastPick = null;
             /* ---------- Responsive placement (spotlight) ---------- */
-            let baseX = 1.7, baseY = 0.0, layoutScale = 1;
+            let baseX = 1.55, baseY = 0.0, layoutScale = 1.05;
             function layout() {
                 const a = window.innerWidth / window.innerHeight;
-                if (a >= 1.6)      { baseX = 1.7;  baseY = 0.0;  layoutScale = 1.0; }
-                else if (a >= 1.3) { baseX = 1.45; baseY = 0.0;  layoutScale = 0.9; }
-                else if (a >= 1.0) { baseX = 1.05; baseY = 0.1;  layoutScale = 0.78; }
-                else               { baseX = 0.75; baseY = 0.75; layoutScale = 0.52; }
+                if (a >= 1.6)      { baseX = 1.55; baseY = 0.0;  layoutScale = 1.05; }
+                else if (a >= 1.3) { baseX = 1.35; baseY = 0.0;  layoutScale = 0.95; }
+                else if (a >= 1.0) { baseX = 1.0;  baseY = 0.1;  layoutScale = 0.8; }
+                else               { baseX = 0.65; baseY = 0.35; layoutScale = 0.6; }
             }
             /* ---------- Entrance (revealed as the boot loader lifts) ---------- */
             const easeOutBack = (t) => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
@@ -2174,7 +2175,6 @@
             const clock = new THREE.Clock();
             let rafId = null, running = false;
             let mouseX = 0, mouseY = 0;
-            let heroVisible = true;
             function tick() {
                 const dt = Math.min(clock.getDelta(), 0.05);
                 const t = clock.elapsedTime;
@@ -2194,9 +2194,10 @@
                 }
                 charGroup.scale.setScalar(entranceAt ? scaleNow : 0.0001);
                 const bob = Math.sin(t * 1.3) * 0.07;
+                const scrollN = window.scrollY || 0;
                 charGroup.position.x += (baseX - charGroup.position.x) * 0.05;
-                charGroup.position.y += ((baseY + bob) - charGroup.position.y) * 0.08;
-                charGroup.rotation.y += ((-0.18 + mouseX * 0.12) - charGroup.rotation.y) * 0.04;
+                charGroup.position.y += ((baseY + bob - scrollN * 0.0002) - charGroup.position.y) * 0.08;
+                charGroup.rotation.y += ((-0.18 + mouseX * 0.12 + Math.sin(scrollN * 0.0012) * 0.2) - charGroup.rotation.y) * 0.04;
                 charGroup.rotation.x += (mouseY * 0.05 - charGroup.rotation.x) * 0.04;
                 charGroup.rotation.z = Math.sin(t * 0.9) * 0.015;
                 const pulse = 1 + Math.sin(t * 1.8) * 0.025;
@@ -2233,7 +2234,7 @@
                 rafId = requestAnimationFrame(tick);
             }
             function start() {
-                if (!running && !reducedMotion && heroVisible) {
+                if (!running && !reducedMotion) {
                     running = true;
                     clock.getDelta();
                     rafId = requestAnimationFrame(tick);
@@ -2246,15 +2247,7 @@
             document.addEventListener('visibilitychange', () => {
                 if (document.hidden) stop(); else start();
             });
-            // pause rendering when the hero scrolls out of view
-            if ('IntersectionObserver' in window) {
-                new IntersectionObserver((entries) => {
-                    entries.forEach((entry) => {
-                        heroVisible = entry.isIntersecting;
-                        if (heroVisible) start(); else stop();
-                    });
-                }, { threshold: 0.02 }).observe(document.getElementById('home'));
-            }
+            // canvas is fixed (always visible) — only the tab-visibility handler pauses it
             /* ---------- Reduced motion: one static frame ---------- */
             function renderStatic() {
                 charGroup.scale.setScalar(layoutScale);
