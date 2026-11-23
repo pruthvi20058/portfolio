@@ -46,7 +46,7 @@
         }
         img { max-width: 100%; }
         a { color: inherit; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+        .container { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
         section { padding: 110px 0; position: relative; }
         /* ==================== SECTION TITLES ==================== */
         .section-title {
@@ -226,7 +226,7 @@
         .hero-bg {
             position: absolute;
             inset: 0;
-            z-index: 0;
+            z-index: -1;
             pointer-events: none;
         }
         .hero-bg .grid-floor {
@@ -253,12 +253,42 @@
             50% { opacity: 0.9; }
         }
         .scene3d {
-            position: absolute;
+            position: fixed;
             inset: 0;
-            z-index: 1;
+            z-index: -1;
             pointer-events: none;
         }
         .scene3d canvas { display: block; opacity: 0; transition: opacity 1.2s ease; }
+        .scene3d-status {
+            position: fixed;
+            left: 18px;
+            bottom: 18px;
+            z-index: 900;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--mono);
+            font-size: 0.62rem;
+            letter-spacing: 2px;
+            color: var(--muted);
+            background: rgba(8, 10, 16, 0.72);
+            border: 1px solid var(--border);
+            border-radius: 99px;
+            padding: 7px 14px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            transition: color 0.3s ease, border-color 0.3s ease;
+        }
+        .scene3d-status .dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: #f5b942;
+            animation: pulse-dot 1.2s ease infinite;
+        }
+        .scene3d-status.online { color: var(--cyan); border-color: rgba(0, 212, 255, 0.4); }
+        .scene3d-status.online .dot { background: #22e584; box-shadow: 0 0 8px #22e584; animation: none; }
+        .scene3d-status.error { color: var(--pink); border-color: rgba(255, 45, 120, 0.4); }
+        .scene3d-status.error .dot { background: var(--pink); animation: none; }
         .hero-content {
             position: relative;
             z-index: 2;
@@ -1229,7 +1259,6 @@
             <div class="grid-floor"></div>
             <div id="heroStars"></div>
         </div>
-        <div class="scene3d" id="scene3d" aria-hidden="true"></div>
         <div class="container hero-content">
             <div class="hero-text">
                 <div class="hero-badge">Open to GenAI Internships</div>
@@ -1255,6 +1284,9 @@
             <span>Scroll</span>
         </div>
     </section>
+    <!-- 3D character: fixed full-page background (visible in every section) -->
+    <div class="scene3d" id="scene3d" aria-hidden="true"></div>
+    <div class="scene3d-status" id="scene3dStatus"><span class="dot"></span><span id="scene3dStatusText">3D · BOOTING</span></div>
     <!-- ============ TECH MARQUEE ============ -->
     <div class="marquee" aria-hidden="true">
         <div class="marquee-track" id="marqueeTrack">
@@ -1956,15 +1988,23 @@
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.15;
+            renderer.toneMappingExposure = 1.3;
             host.appendChild(renderer.domElement);
+            const statusEl = document.getElementById('scene3dStatus');
+            const statusText = document.getElementById('scene3dStatusText');
+            function set3dStatus(state, text) {
+                if (!statusEl) return;
+                statusEl.classList.remove('online', 'error');
+                if (state) statusEl.classList.add(state);
+                if (statusText && text) statusText.textContent = text;
+            }
             const scene = new THREE.Scene();
             const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.set(0, 0.5, 7.4);
             camera.lookAt(0.4, 0.1, 0);
             /* ---------- Lights (matched to the site's neon palette) ---------- */
-            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-            const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.95));
+            const keyLight = new THREE.DirectionalLight(0xffffff, 1.9);
             keyLight.position.set(3, 5, 4);
             keyLight.castShadow = true;
             keyLight.shadow.mapSize.set(1024, 1024);
@@ -2092,6 +2132,7 @@
             let mixer = null, currentAction = null, idleName = null, funNames = [];
             let modelReady = false;
             new GLTFLoader().load('assets/RobotExpressive.glb', (gltf) => {
+                try {
                 const model = gltf.scene;
                 const box = new THREE.Box3().setFromObject(model);
                 const size = box.getSize(new THREE.Vector3());
@@ -2127,9 +2168,14 @@
                 } else {
                     tryEntrance();
                 }
+                set3dStatus('online', '3D · ONLINE');
+                } catch (err) {
+                    console.error('3D character setup failed:', err);
+                    set3dStatus('error', '3D · ERROR');
+                }
             }, undefined, (err) => {
                 console.warn('3D character failed to load:', err);
-                host.remove();
+                set3dStatus('error', '3D · OFFLINE');
             });
             /* ---------- Animation state machine ---------- */
             function crossTo(name, duration) {
@@ -2145,13 +2191,32 @@
             }
             let busy = false, nextSwitchAt = 3, lastDanceAt = 0, lastPick = null;
             /* ---------- Responsive placement (spotlight) ---------- */
-            let baseX = 1.7, baseY = 0.0, layoutScale = 1;
+            let baseX = 1.55, baseY = 0.0, layoutScale = 1.05;
             function layout() {
                 const a = window.innerWidth / window.innerHeight;
-                if (a >= 1.6)      { baseX = 1.7;  baseY = 0.0;  layoutScale = 1.0; }
-                else if (a >= 1.3) { baseX = 1.45; baseY = 0.0;  layoutScale = 0.9; }
-                else if (a >= 1.0) { baseX = 1.05; baseY = 0.1;  layoutScale = 0.78; }
-                else               { baseX = 0.75; baseY = 0.75; layoutScale = 0.52; }
+                if (a >= 1.6)      { baseX = 1.55; baseY = 0.0;  layoutScale = 1.05; }
+                else if (a >= 1.3) { baseX = 1.35; baseY = 0.0;  layoutScale = 0.95; }
+                else if (a >= 1.0) { baseX = 1.0;  baseY = 0.1;  layoutScale = 0.8; }
+                else               { baseX = 0.55; baseY = 0.45; layoutScale = 0.7; }
+            }
+            /* ---------- Docking: spotlight in hero, compact companion at the right edge elsewhere ---------- */
+            const heroEl = document.getElementById('home');
+            let targetX = baseX, targetY = baseY, targetDockScale = 1, dockScale = 1;
+            function updateDock() {
+                const a = window.innerWidth / window.innerHeight;
+                const heroH = (heroEl && heroEl.offsetHeight) || window.innerHeight;
+                const inHero = (window.scrollY || 0) < heroH * 0.55;
+                if (inHero) {
+                    targetX = baseX; targetY = baseY; targetDockScale = 1;
+                } else if (a >= 1.6) {
+                    targetX = 3.9; targetY = -0.3; targetDockScale = 0.5;
+                } else if (a >= 1.3) {
+                    targetX = 3.4; targetY = -0.3; targetDockScale = 0.5;
+                } else if (a >= 1.0) {
+                    targetX = 2.7; targetY = -0.25; targetDockScale = 0.45;
+                } else {
+                    targetX = 0.95; targetY = -0.2; targetDockScale = 0.55;
+                }
             }
             /* ---------- Entrance (revealed as the boot loader lifts) ---------- */
             const easeOutBack = (t) => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
@@ -2174,7 +2239,6 @@
             const clock = new THREE.Clock();
             let rafId = null, running = false;
             let mouseX = 0, mouseY = 0;
-            let heroVisible = true;
             function tick() {
                 const dt = Math.min(clock.getDelta(), 0.05);
                 const t = clock.elapsedTime;
@@ -2190,13 +2254,16 @@
                             nextSwitchAt = t + 6;
                         }
                     }
-                    scaleNow = layoutScale * Math.max(easeOutBack(p), 0.0001);
+                    scaleNow = Math.max(easeOutBack(p), 0.0001);
                 }
-                charGroup.scale.setScalar(entranceAt ? scaleNow : 0.0001);
+                dockScale += (targetDockScale - dockScale) * 0.05;
+                charGroup.scale.setScalar(scaleNow * dockScale * layoutScale);
                 const bob = Math.sin(t * 1.3) * 0.07;
-                charGroup.position.x += (baseX - charGroup.position.x) * 0.05;
-                charGroup.position.y += ((baseY + bob) - charGroup.position.y) * 0.08;
-                charGroup.rotation.y += ((-0.18 + mouseX * 0.12) - charGroup.rotation.y) * 0.04;
+                const scrollN = window.scrollY || 0;
+                updateDock();
+                charGroup.position.x += (targetX - charGroup.position.x) * 0.05;
+                charGroup.position.y += ((targetY + bob - scrollN * 0.0002) - charGroup.position.y) * 0.08;
+                charGroup.rotation.y += ((-0.18 + mouseX * 0.12 + Math.sin(scrollN * 0.0012) * 0.2) - charGroup.rotation.y) * 0.04;
                 charGroup.rotation.x += (mouseY * 0.05 - charGroup.rotation.x) * 0.04;
                 charGroup.rotation.z = Math.sin(t * 0.9) * 0.015;
                 const pulse = 1 + Math.sin(t * 1.8) * 0.025;
@@ -2228,12 +2295,12 @@
                 }
                 camera.position.x += (mouseX * 0.18 + 0.1 - camera.position.x) * 0.03;
                 camera.position.y += ((0.5 - mouseY * 0.12) - camera.position.y) * 0.03;
-                camera.lookAt(charGroup.position.x * 0.35, 0.1, 0);
+                camera.lookAt(0.35, 0.1, 0);
                 renderer.render(scene, camera);
                 rafId = requestAnimationFrame(tick);
             }
             function start() {
-                if (!running && !reducedMotion && heroVisible) {
+                if (!running && !reducedMotion) {
                     running = true;
                     clock.getDelta();
                     rafId = requestAnimationFrame(tick);
@@ -2246,15 +2313,7 @@
             document.addEventListener('visibilitychange', () => {
                 if (document.hidden) stop(); else start();
             });
-            // pause rendering when the hero scrolls out of view
-            if ('IntersectionObserver' in window) {
-                new IntersectionObserver((entries) => {
-                    entries.forEach((entry) => {
-                        heroVisible = entry.isIntersecting;
-                        if (heroVisible) start(); else stop();
-                    });
-                }, { threshold: 0.02 }).observe(document.getElementById('home'));
-            }
+            // canvas is fixed (always visible) — only the tab-visibility handler pauses it
             /* ---------- Reduced motion: one static frame ---------- */
             function renderStatic() {
                 charGroup.scale.setScalar(layoutScale);
