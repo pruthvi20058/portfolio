@@ -294,6 +294,23 @@
             }
         }
 
+        /* ==================== 3D CHARACTER BACKGROUND ==================== */
+        .scene3d {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .scene3d canvas {
+            display: block;
+            opacity: 0;
+            transition: opacity 1.2s ease;
+        }
+
         /* ==================== PRELOADER ==================== */
         .preloader {
             position: fixed;
@@ -1779,6 +1796,9 @@
         <div class="code-rain" id="codeRain"></div>
     </div>
 
+    <!-- 3D Animated Character Background (RobotExpressive model, CC0 1.0) -->
+    <div class="scene3d" id="scene3d" aria-hidden="true"></div>
+
     <!-- Preloader -->
     <div class="preloader">
         <div class="loader">
@@ -2712,12 +2732,382 @@
         window.addEventListener('scroll', () => {
             const scrolled = window.pageYOffset;
             const parallaxElements = document.querySelectorAll('.orb');
-            
+
             parallaxElements.forEach((el, index) => {
                 const speed = (index + 1) * 0.1;
                 el.style.transform = `translateY(${scrolled * speed}px)`;
             });
         });
+    </script>
+
+    <!-- ==================== 3D ANIMATED CHARACTER BACKGROUND ====================
+         3D model "RobotExpressive" by Tomás Laulhé (Quaternius), CC0 1.0
+         https://www.patreon.com/quaternius -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        (function init3DCharacter() {
+            const host = document.getElementById('scene3d');
+            if (!host) return;
+
+            const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+            let renderer;
+            try {
+                renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            } catch (err) {
+                console.warn('WebGL unavailable, 3D character disabled:', err);
+                host.remove();
+                return;
+            }
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.15;
+            host.appendChild(renderer.domElement);
+
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 0.45, 7.2);
+            camera.lookAt(0, 0.05, 0);
+
+            /* ---------- Lights (matched to the site's neon palette) ---------- */
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+            const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
+            keyLight.position.set(3, 5, 4);
+            keyLight.castShadow = true;
+            keyLight.shadow.mapSize.set(1024, 1024);
+            keyLight.shadow.camera.near = 1;
+            keyLight.shadow.camera.far = 20;
+            keyLight.shadow.camera.left = -3.5;
+            keyLight.shadow.camera.right = 3.5;
+            keyLight.shadow.camera.top = 4;
+            keyLight.shadow.camera.bottom = -2;
+            scene.add(keyLight);
+
+            const rimCyan = new THREE.DirectionalLight(0x00d4ff, 1.1);
+            rimCyan.position.set(-4, 2, -3);
+            scene.add(rimCyan);
+
+            const fillPurple = new THREE.DirectionalLight(0x6c5ce7, 0.8);
+            fillPurple.position.set(4, 1.5, -2.5);
+            scene.add(fillPurple);
+
+            /* ---------- Ground: soft shadow + neon stage ---------- */
+            const GROUND_Y = -1.35;
+
+            const shadowCatcher = new THREE.Mesh(
+                new THREE.CircleGeometry(3, 48),
+                new THREE.ShadowMaterial({ opacity: 0.35 })
+            );
+            shadowCatcher.rotation.x = -Math.PI / 2;
+            shadowCatcher.position.y = GROUND_Y - 0.005;
+            shadowCatcher.receiveShadow = true;
+            scene.add(shadowCatcher);
+
+            function makeGlowTexture(rgb) {
+                const c = document.createElement('canvas');
+                c.width = c.height = 256;
+                const ctx = c.getContext('2d');
+                const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+                g.addColorStop(0, 'rgba(' + rgb + ',0.6)');
+                g.addColorStop(0.5, 'rgba(' + rgb + ',0.18)');
+                g.addColorStop(1, 'rgba(' + rgb + ',0)');
+                ctx.fillStyle = g;
+                ctx.fillRect(0, 0, 256, 256);
+                return new THREE.CanvasTexture(c);
+            }
+
+            const stageGroup = new THREE.Group();
+            stageGroup.position.y = GROUND_Y;
+
+            const stageHalo = new THREE.Mesh(
+                new THREE.CircleGeometry(1.9, 48),
+                new THREE.MeshBasicMaterial({
+                    map: makeGlowTexture('0,212,255'),
+                    transparent: true, opacity: 0.55,
+                    depthWrite: false, blending: THREE.AdditiveBlending,
+                    side: THREE.DoubleSide
+                })
+            );
+            stageHalo.rotation.x = -Math.PI / 2;
+            stageGroup.add(stageHalo);
+
+            const ringA = new THREE.Mesh(
+                new THREE.RingGeometry(1.05, 1.11, 64),
+                new THREE.MeshBasicMaterial({
+                    color: 0x00d4ff, transparent: true, opacity: 0.45,
+                    depthWrite: false, side: THREE.DoubleSide
+                })
+            );
+            ringA.rotation.x = -Math.PI / 2;
+            ringA.position.y = 0.01;
+            stageGroup.add(ringA);
+
+            const ringB = new THREE.Mesh(
+                new THREE.RingGeometry(1.42, 1.46, 64),
+                new THREE.MeshBasicMaterial({
+                    color: 0x6c5ce7, transparent: true, opacity: 0.25,
+                    depthWrite: false, side: THREE.DoubleSide
+                })
+            );
+            ringB.rotation.x = -Math.PI / 2;
+            ringB.position.y = 0.005;
+            stageGroup.add(ringB);
+
+            /* ---------- Character group (parallax / bob / entrance live here) ---------- */
+            const charGroup = new THREE.Group();
+            scene.add(charGroup);
+            charGroup.add(stageGroup);
+
+            // Soft neon halo behind the character
+            const haloSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: makeGlowTexture('0,150,255'),
+                transparent: true, opacity: 0.4,
+                depthWrite: false, blending: THREE.AdditiveBlending
+            }));
+            haloSprite.scale.set(5.5, 5.5, 1);
+            haloSprite.position.set(0, 0.15, -1.1);
+            charGroup.add(haloSprite);
+
+            const rig = new THREE.Group();
+            charGroup.add(rig);
+
+            /* ---------- Load the 3D character ---------- */
+            const TARGET_HEIGHT = 2.6;
+            const actions = {};
+            let mixer = null, currentAction = null, idleName = null, funNames = [];
+            let modelReady = false;
+
+            new GLTFLoader().load('assets/RobotExpressive.glb', (gltf) => {
+                const model = gltf.scene;
+                const box = new THREE.Box3().setFromObject(model);
+                const size = box.getSize(new THREE.Vector3());
+                const center = box.getCenter(new THREE.Vector3());
+                model.position.x -= center.x;
+                model.position.z -= center.z;
+                const s = TARGET_HEIGHT / size.y;
+                model.scale.setScalar(s);
+                model.position.y = GROUND_Y - box.min.y * s;
+                model.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+                rig.add(model);
+
+                mixer = new THREE.AnimationMixer(model);
+                (gltf.animations || []).forEach((clip) => {
+                    actions[clip.name] = mixer.clipAction(clip);
+                });
+
+                idleName = ['Idle', 'Standing', 'Idle Walking'].find((n) => actions[n]) ||
+                    (gltf.animations && gltf.animations.length ? gltf.animations[0].name : null);
+                funNames = ['Wave', 'Dance', 'ThumbsUp', 'Jump', 'Punch'].filter((n) => actions[n]);
+
+                if (idleName && actions[idleName]) {
+                    currentAction = actions[idleName];
+                    currentAction.reset().play();
+                }
+
+                mixer.addEventListener('finished', (e) => {
+                    if (e.action === currentAction && e.action.getClip().name !== idleName) {
+                        busy = false;
+                        crossTo(idleName, 0.5);
+                    }
+                });
+
+                modelReady = true;
+                nextSwitchAt = 3;
+
+                if (reducedMotion) {
+                    renderStatic();
+                } else {
+                    tryEntrance();
+                }
+            }, undefined, (err) => {
+                console.warn('3D character failed to load:', err);
+                host.remove();
+            });
+
+            /* ---------- Animation state machine ---------- */
+            function crossTo(name, duration) {
+                const next = actions[name];
+                if (!next || next === currentAction) return false;
+                next.reset();
+                next.setLoop(name === idleName ? THREE.LoopRepeat : THREE.LoopOnce);
+                next.fadeIn(duration || 0.4);
+                next.play();
+                if (currentAction) currentAction.fadeOut(duration || 0.4);
+                currentAction = next;
+                return true;
+            }
+
+            let busy = false, nextSwitchAt = 3, lastDanceAt = 0;
+
+            /* ---------- Layout (responsive character placement) ---------- */
+            let baseX = 1.95, layoutScale = 1;
+
+            function layout() {
+                const a = window.innerWidth / window.innerHeight;
+                if (a >= 1.6)      { baseX = 1.95; layoutScale = 1.0; }
+                else if (a >= 1.3) { baseX = 1.55; layoutScale = 0.9; }
+                else if (a >= 1.0) { baseX = 1.15; layoutScale = 0.78; }
+                else               { baseX = 0.8;  layoutScale = 0.66; }
+            }
+
+            /* ---------- Interaction state ---------- */
+            let mouseX = 0, mouseY = 0, scrollY = 0;
+
+            /* ---------- Entrance (revealed as the preloader lifts) ---------- */
+            const easeOutBack = (t) => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
+            let entranceAt = 0, entranceDone = false;
+            let pageLoaded = document.readyState === 'complete';
+
+            function tryEntrance() {
+                if (!modelReady || !pageLoaded || entranceAt) return;
+                setTimeout(() => {
+                    entranceAt = performance.now();
+                    renderer.domElement.style.opacity = '1';
+                }, 2200);
+            }
+
+            if (!pageLoaded) {
+                window.addEventListener('load', () => {
+                    pageLoaded = true;
+                    tryEntrance();
+                }, { once: true });
+            }
+
+            /* ---------- Render loop ---------- */
+            const clock = new THREE.Clock();
+            let rafId = null, running = false;
+
+            function tick() {
+                const dt = Math.min(clock.getDelta(), 0.05);
+                const t = clock.elapsedTime;
+
+                if (mixer) mixer.update(dt);
+
+                // Entrance scale-in
+                let scaleNow = 0.0001;
+                if (entranceAt) {
+                    const p = Math.min((performance.now() - entranceAt) / 1400, 1);
+                    if (p >= 1) entranceDone = true;
+                    scaleNow = layoutScale * Math.max(easeOutBack(p), 0.0001);
+                }
+                charGroup.scale.setScalar(entranceAt ? scaleNow : 0.0001);
+
+                // Idle bob + sway
+                const bob = Math.sin(t * 1.3) * 0.06;
+                const targetY = bob - scrollY * 0.00018;
+                const targetRotY = -0.18 + mouseX * 0.12 + Math.sin(scrollY * 0.0012) * 0.18;
+                const targetRotX = mouseY * 0.05;
+
+                charGroup.position.x += (baseX - charGroup.position.x) * 0.05;
+                charGroup.position.y += (targetY - charGroup.position.y) * 0.08;
+                charGroup.rotation.y += (targetRotY - charGroup.rotation.y) * 0.04;
+                charGroup.rotation.x += (targetRotX - charGroup.rotation.x) * 0.04;
+                charGroup.rotation.z = Math.sin(t * 0.9) * 0.015;
+
+                // Stage ring pulse
+                const pulse = 1 + Math.sin(t * 1.8) * 0.025;
+                ringA.scale.setScalar(pulse);
+                ringB.scale.setScalar(2 - pulse);
+
+                // Random idle animation (wave / dance / thumbs up ...)
+                if (modelReady && entranceDone && !busy && t > nextSwitchAt && funNames.length) {
+                    busy = true;
+                    const pick = funNames[Math.floor(Math.random() * funNames.length)];
+                    if (crossTo(pick, 0.35)) {
+                        nextSwitchAt = t + 3.5 + Math.random() * 4;
+                    }
+                }
+
+                // Subtle camera drift
+                camera.position.x += (mouseX * 0.18 - camera.position.x) * 0.03;
+                camera.position.y += ((0.45 - mouseY * 0.12) - camera.position.y) * 0.03;
+                camera.lookAt(charGroup.position.x * 0.35, 0.05, 0);
+
+                renderer.render(scene, camera);
+                rafId = requestAnimationFrame(tick);
+            }
+
+            function start() {
+                if (!running && !reducedMotion) {
+                    running = true;
+                    clock.getDelta();
+                    rafId = requestAnimationFrame(tick);
+                }
+            }
+
+            function stop() {
+                running = false;
+                if (rafId) cancelAnimationFrame(rafId);
+            }
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) stop(); else start();
+            });
+
+            /* ---------- Reduced motion: one static frame ---------- */
+            function renderStatic() {
+                charGroup.scale.setScalar(layoutScale);
+                charGroup.position.set(baseX, 0, 0);
+                charGroup.rotation.set(0, -0.18, 0);
+                if (mixer) mixer.update(0.12);
+                renderer.domElement.style.opacity = '1';
+                renderer.render(scene, camera);
+            }
+
+            /* ---------- Events ---------- */
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                layout();
+                if (reducedMotion) renderStatic();
+            });
+
+            window.addEventListener('pointermove', (e) => {
+                mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+                mouseY = (e.clientY / window.innerHeight) * 2 - 1;
+            }, { passive: true });
+
+            window.addEventListener('scroll', () => {
+                scrollY = window.scrollY || 0;
+            }, { passive: true });
+
+            // Click anywhere (not on UI elements) to make the character dance
+            document.addEventListener('click', (e) => {
+                if (reducedMotion || !modelReady) return;
+                if (e.target.closest && e.target.closest(
+                    'a,button,input,select,textarea,label,form,.nav-menu,.hamburger,.hero-buttons,.project-card,.timeline-item,.cert-card,.hobby-card,.skill-bar,.scroll-top'
+                )) return;
+                const now = performance.now();
+                if (now - lastDanceAt < 1600) return;
+                const name = actions['Dance'] ? 'Dance' : funNames[0];
+                if (!name) return;
+                lastDanceAt = now;
+                busy = true;
+                nextSwitchAt = clock.elapsedTime + 4;
+                crossTo(name, 0.3);
+            });
+
+            layout();
+            charGroup.position.set(baseX, 0, 0);
+            charGroup.rotation.y = -0.18;
+            charGroup.scale.setScalar(0.0001);
+            start();
+        })();
     </script>
 </body>
 </html>
