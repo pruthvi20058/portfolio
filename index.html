@@ -1286,7 +1286,7 @@
     </section>
     <!-- 3D character: fixed full-page background (visible in every section) -->
     <div class="scene3d" id="scene3d" aria-hidden="true"></div>
-    <div class="scene3d-status" id="scene3dStatus"><span class="dot"></span><span id="scene3dStatusText">3D · BOOTING · v3</span></div>
+    <div class="scene3d-status" id="scene3dStatus"><span class="dot"></span><span id="scene3dStatusText">AVATAR · LOADING</span></div>
     <!-- ============ TECH MARQUEE ============ -->
     <div class="marquee" aria-hidden="true">
         <div class="marquee-track" id="marqueeTrack">
@@ -1694,7 +1694,7 @@
     <footer class="footer">
         <div class="container">
             <p>&copy; 2026 Pruthvi S Nadig. All rights reserved.</p>
-            <p>Made with <i class="fas fa-heart"></i> and <i class="fas fa-code"></i> · Powered by a very animated robot</p>
+            <p>Made with <i class="fas fa-heart"></i> and <i class="fas fa-code"></i> · Powered by a friendly animated avatar</p>
         </div>
     </footer>
     <!-- Scroll to Top -->
@@ -1957,9 +1957,7 @@
             btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
         })();
     </script>
-    <!-- ==================== 3D ANIMATED CHARACTER (SPOTLIGHT) ====================
-         3D model "RobotExpressive" by Tomás Laulhé (Quaternius), CC0 1.0
-         https://www.patreon.com/quaternius -->
+    <!-- ==================== ANIMATED PORTRAIT AND SPOTLIGHT ==================== -->
     <script type="importmap">
     {
         "imports": {
@@ -1970,7 +1968,6 @@
     </script>
     <script type="module">
         import * as THREE from 'three';
-        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         (function init3DCharacter() {
             const host = document.getElementById('scene3d');
             if (!host) return;
@@ -1992,7 +1989,7 @@
             host.appendChild(renderer.domElement);
             const statusEl = document.getElementById('scene3dStatus');
             const statusText = document.getElementById('scene3dStatusText');
-            const BUILD = 'v3';
+            const BUILD = 'v4';
             function set3dStatus(state, text) {
                 if (!statusEl) return;
                 statusEl.classList.remove('online', 'error');
@@ -2093,15 +2090,6 @@
             haloSprite.scale.set(6, 6, 1);
             haloSprite.position.set(0, 0.2, -1.2);
             charGroup.add(haloSprite);
-            /* Glowing robot core — unlit, always visible at the character's chest */
-            const chestGlow = new THREE.Sprite(new THREE.SpriteMaterial({
-                map: makeGlowTexture('0,229,255'),
-                transparent: true, opacity: 0.4,
-                depthWrite: false, blending: THREE.AdditiveBlending
-            }));
-            chestGlow.scale.set(1.7, 1.7, 1);
-            chestGlow.position.set(0, 0.35, 0.5);
-            charGroup.add(chestGlow);
             const rig = new THREE.Group();
             charGroup.add(rig);
             /* ---------- Cinematic light cone ---------- */
@@ -2136,91 +2124,52 @@
                 sizeAttenuation: true
             }));
             charGroup.add(sparkles);
-            /* ---------- Load the 3D character ---------- */
-            const TARGET_HEIGHT = 3.0;
-            const actions = {};
-            let mixer = null, currentAction = null, idleName = null, funNames = [];
-            let modelReady = false;
-            new GLTFLoader().load('assets/RobotExpressive.glb', (gltf) => {
-                try {
-                const model = gltf.scene;
-                // Skinned hands have misleading bind-pose bounds; measure the rigid
-                // body meshes instead so the character is not scaled down to a speck.
-                model.updateMatrixWorld(true);
-                const box = new THREE.Box3();
-                model.traverse((o) => {
-                    if (o.isMesh && !o.isSkinnedMesh) {
-                        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-                        box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
-                    }
-                });
-                const size = box.getSize(new THREE.Vector3());
-                if (box.isEmpty() || !Number.isFinite(size.y) || size.y <= 0) {
-                    throw new Error('Robot body has invalid bounds');
-                }
-                const center = box.getCenter(new THREE.Vector3());
-                const s = TARGET_HEIGHT / size.y;
-                model.scale.setScalar(s);
-                model.position.set(-center.x * s, GROUND_Y - box.min.y * s, -center.z * s);
-                model.traverse((o) => {
-                    if (o.isMesh) {
-                        o.castShadow = true;
-                        // Animated hand bounds can be inaccurate for frustum culling.
-                        if (o.isSkinnedMesh) o.frustumCulled = false;
-                        const mats = Array.isArray(o.material) ? o.material : [o.material];
-                        mats.forEach((m) => {
-                            if (m && m.metalness !== undefined) m.metalness = Math.min(m.metalness, 0.25);
-                            if (m && m.roughness !== undefined) m.roughness = Math.max(m.roughness, 0.35);
-                        });
-                    }
-                });
-                rig.add(model);
-                mixer = new THREE.AnimationMixer(model);
-                (gltf.animations || []).forEach((clip) => {
-                    actions[clip.name] = mixer.clipAction(clip);
-                });
-                idleName = ['Idle', 'Standing', 'Idle Walking'].find((nm) => actions[nm]) ||
-                    (gltf.animations && gltf.animations.length ? gltf.animations[0].name : null);
-                funNames = ['Wave', 'Dance', 'ThumbsUp', 'Jump', 'Punch'].filter((nm) => actions[nm]);
-                if (idleName && actions[idleName]) {
-                    currentAction = actions[idleName];
-                    currentAction.reset().play();
-                }
-                mixer.addEventListener('finished', (e) => {
-                    if (e.action === currentAction && e.action.getClip().name !== idleName) {
-                        busy = false;
-                        crossTo(idleName, 0.5);
-                    }
-                });
+            /* Illustrated portrait based on the project photo. The hand is a
+               separate transparent layer, pivoted at the wrist for a real wave. */
+            let modelReady = false, waveHand = null;
+            const avatarHeight = 3.45, avatarWidth = avatarHeight * 843 / 1264;
+            const avatarY = 0.24;
+            const loader = new THREE.TextureLoader();
+            Promise.all([
+                loader.loadAsync('assets/pruthvi-avatar.png'),
+                loader.loadAsync('assets/pruthvi-wave.png')
+            ]).then(([bodyTexture, handTexture]) => {
+                for (const texture of [bodyTexture, handTexture]) texture.colorSpace = THREE.SRGBColorSpace;
+                const body = new THREE.Sprite(new THREE.SpriteMaterial({ map: bodyTexture, transparent: true, depthWrite: false }));
+                body.scale.set(avatarWidth, avatarHeight, 1);
+                body.position.set(0, avatarY, 0.1);
+                rig.add(body);
+                waveHand = new THREE.Sprite(new THREE.SpriteMaterial({ map: handTexture, transparent: true, depthWrite: false }));
+                waveHand.scale.set(avatarWidth, avatarHeight, 1);
+                waveHand.center.set(220 / 843, 1 - 370 / 1264);
+                waveHand.position.set((220 / 843 - 0.5) * avatarWidth, avatarY + (0.5 - 370 / 1264) * avatarHeight, 0.12);
+                rig.add(waveHand);
+                const greetingCanvas = document.createElement('canvas');
+                greetingCanvas.width = 400; greetingCanvas.height = 140;
+                const greeting = greetingCanvas.getContext('2d');
+                greeting.fillStyle = 'rgba(8, 22, 36, 0.92)';
+                greeting.strokeStyle = '#00d4ff';
+                greeting.lineWidth = 4;
+                greeting.beginPath();
+                greeting.roundRect(8, 8, 384, 124, 36);
+                greeting.fill(); greeting.stroke();
+                greeting.fillStyle = '#ffffff';
+                greeting.font = 'bold 46px sans-serif';
+                greeting.textAlign = 'center'; greeting.textBaseline = 'middle';
+                greeting.fillText('Hi, I’m Pruthvi!', 200, 70);
+                const greetingTexture = new THREE.CanvasTexture(greetingCanvas);
+                greetingTexture.colorSpace = THREE.SRGBColorSpace;
+                const bubble = new THREE.Sprite(new THREE.SpriteMaterial({ map: greetingTexture, transparent: true, depthWrite: false }));
+                bubble.scale.set(1.45, 0.51, 1);
+                bubble.position.set(0.9, 1.55, 0.2);
+                rig.add(bubble);
                 modelReady = true;
-                nextSwitchAt = 3;
-                if (reducedMotion) {
-                    renderStatic();
-                } else {
-                    tryEntrance();
-                }
-                set3dStatus('online', '3D · ONLINE · ' + BUILD);
-                } catch (err) {
-                    console.error('3D character setup failed:', err);
-                    set3dStatus('error', '3D · ERROR · ' + BUILD);
-                }
-            }, undefined, (err) => {
-                console.warn('3D character failed to load:', err);
-                set3dStatus('error', '3D · OFFLINE · ' + BUILD);
+                if (reducedMotion) renderStatic(); else tryEntrance();
+                set3dStatus('online', 'AVATAR · ONLINE · ' + BUILD);
+            }).catch((err) => {
+                console.error('Avatar failed to load:', err);
+                set3dStatus('error', 'AVATAR · OFFLINE · ' + BUILD);
             });
-            /* ---------- Animation state machine ---------- */
-            function crossTo(name, duration) {
-                const next = actions[name];
-                if (!next || next === currentAction) return false;
-                next.reset();
-                next.setLoop(name === idleName ? THREE.LoopRepeat : THREE.LoopOnce);
-                next.fadeIn(duration || 0.4);
-                next.play();
-                if (currentAction) currentAction.fadeOut(duration || 0.4);
-                currentAction = next;
-                return true;
-            }
-            let busy = false, nextSwitchAt = 3, lastDanceAt = 0, lastPick = null;
             /* ---------- Responsive placement (spotlight) ---------- */
             let baseX = 1.55, baseY = 0.0, layoutScale = 1.05;
             function layout() {
@@ -2273,18 +2222,10 @@
             function tick() {
                 const dt = Math.min(clock.getDelta(), 0.05);
                 const t = clock.elapsedTime;
-                if (mixer) mixer.update(dt);
                 let scaleNow = 0.0001;
                 if (entranceAt) {
                     const p = Math.min((performance.now() - entranceAt) / 1400, 1);
-                    if (p >= 1 && !entranceDone) {
-                        entranceDone = true;
-                        if (actions['Wave']) {
-                            busy = true;
-                            crossTo('Wave', 0.4);
-                            nextSwitchAt = t + 6;
-                        }
-                    }
+                    if (p >= 1) entranceDone = true;
                     scaleNow = Math.max(easeOutBack(p), 0.0001);
                 }
                 dockScale += (targetDockScale - dockScale) * 0.05;
@@ -2315,15 +2256,7 @@
                     sparkAttr.setY(i, sy);
                 }
                 sparkAttr.needsUpdate = true;
-                if (modelReady && entranceDone && !busy && t > nextSwitchAt && funNames.length) {
-                    busy = true;
-                    const options = funNames.length > 1 ? funNames.filter((nm) => nm !== lastPick) : funNames;
-                    const pick = options[Math.floor(Math.random() * options.length)];
-                    lastPick = pick;
-                    if (crossTo(pick, 0.3)) {
-                        nextSwitchAt = t + 2.8 + Math.random() * 3.5;
-                    }
-                }
+                if (waveHand) waveHand.material.rotation = Math.sin(t * 3.2) * 0.16;
                 camera.position.x += (mouseX * 0.18 + 0.1 - camera.position.x) * 0.03;
                 camera.position.y += ((0.5 - mouseY * 0.12) - camera.position.y) * 0.03;
                 camera.lookAt(0.35, 0.1, 0);
@@ -2351,7 +2284,6 @@
                 charGroup.scale.setScalar(layoutScale * targetDockScale);
                 charGroup.position.set(targetX, targetY, 0);
                 charGroup.rotation.set(0, -0.18, 0);
-                if (mixer) mixer.update(0.12);
                 renderer.domElement.style.opacity = '1';
                 renderer.render(scene, camera);
             }
@@ -2370,34 +2302,6 @@
                 mouseX = (e.clientX / window.innerWidth) * 2 - 1;
                 mouseY = (e.clientY / window.innerHeight) * 2 - 1;
             }, { passive: true });
-            // Click anywhere (not on UI elements) to make the character dance
-            document.addEventListener('click', (e) => {
-                if (reducedMotion || !modelReady) return;
-                if (e.target.closest && e.target.closest(
-                    'a,button,input,select,textarea,label,form,.nav-menu,.hamburger,.carousel-nav'
-                )) return;
-                const now = performance.now();
-                if (now - lastDanceAt < 1600) return;
-                const name = actions['Dance'] ? 'Dance' : funNames[0];
-                if (!name) return;
-                lastDanceAt = now;
-                busy = true;
-                nextSwitchAt = clock.elapsedTime + 4;
-                crossTo(name, 0.3);
-            });
-            /* Double-click easter egg: the character punches (or jumps) */
-            document.addEventListener('dblclick', (e) => {
-                if (reducedMotion || !modelReady) return;
-                if (e.target.closest && e.target.closest(
-                    'a,button,input,select,textarea,label,form,.nav-menu,.hamburger,.carousel-nav'
-                )) return;
-                const name = actions['Punch'] ? 'Punch' : (actions['Jump'] ? 'Jump' : funNames[0]);
-                if (!name) return;
-                lastDanceAt = performance.now();
-                busy = true;
-                nextSwitchAt = clock.elapsedTime + 4;
-                crossTo(name, 0.25);
-            });
             layout();
             charGroup.position.set(baseX, baseY, 0);
             charGroup.rotation.y = -0.18;
