@@ -1286,7 +1286,7 @@
     </section>
     <!-- 3D character: fixed full-page background (visible in every section) -->
     <div class="scene3d" id="scene3d" aria-hidden="true"></div>
-    <div class="scene3d-status" id="scene3dStatus"><span class="dot"></span><span id="scene3dStatusText">3D · BOOTING · v2</span></div>
+    <div class="scene3d-status" id="scene3dStatus"><span class="dot"></span><span id="scene3dStatusText">3D · BOOTING · v3</span></div>
     <!-- ============ TECH MARQUEE ============ -->
     <div class="marquee" aria-hidden="true">
         <div class="marquee-track" id="marqueeTrack">
@@ -1992,7 +1992,7 @@
             host.appendChild(renderer.domElement);
             const statusEl = document.getElementById('scene3dStatus');
             const statusText = document.getElementById('scene3dStatusText');
-            const BUILD = 'v2';
+            const BUILD = 'v3';
             function set3dStatus(state, text) {
                 if (!statusEl) return;
                 statusEl.classList.remove('online', 'error');
@@ -2144,17 +2144,29 @@
             new GLTFLoader().load('assets/RobotExpressive.glb', (gltf) => {
                 try {
                 const model = gltf.scene;
-                const box = new THREE.Box3().setFromObject(model);
+                // Skinned hands have misleading bind-pose bounds; measure the rigid
+                // body meshes instead so the character is not scaled down to a speck.
+                model.updateMatrixWorld(true);
+                const box = new THREE.Box3();
+                model.traverse((o) => {
+                    if (o.isMesh && !o.isSkinnedMesh) {
+                        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+                        box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
+                    }
+                });
                 const size = box.getSize(new THREE.Vector3());
+                if (box.isEmpty() || !Number.isFinite(size.y) || size.y <= 0) {
+                    throw new Error('Robot body has invalid bounds');
+                }
                 const center = box.getCenter(new THREE.Vector3());
-                model.position.x -= center.x;
-                model.position.z -= center.z;
                 const s = TARGET_HEIGHT / size.y;
                 model.scale.setScalar(s);
-                model.position.y = GROUND_Y - box.min.y * s;
+                model.position.set(-center.x * s, GROUND_Y - box.min.y * s, -center.z * s);
                 model.traverse((o) => {
                     if (o.isMesh) {
                         o.castShadow = true;
+                        // Animated hand bounds can be inaccurate for frustum culling.
+                        if (o.isSkinnedMesh) o.frustumCulled = false;
                         const mats = Array.isArray(o.material) ? o.material : [o.material];
                         mats.forEach((m) => {
                             if (m && m.metalness !== undefined) m.metalness = Math.min(m.metalness, 0.25);
@@ -2281,7 +2293,7 @@
                 const scrollN = window.scrollY || 0;
                 updateDock();
                 charGroup.position.x += (targetX - charGroup.position.x) * 0.05;
-                charGroup.position.y += ((targetY + bob - scrollN * 0.0002) - charGroup.position.y) * 0.08;
+                charGroup.position.y += ((targetY + bob) - charGroup.position.y) * 0.08;
                 charGroup.rotation.y += ((-0.18 + mouseX * 0.12 + Math.sin(scrollN * 0.0012) * 0.2) - charGroup.rotation.y) * 0.04;
                 charGroup.rotation.x += (mouseY * 0.05 - charGroup.rotation.x) * 0.04;
                 charGroup.rotation.z = Math.sin(t * 0.9) * 0.015;
@@ -2335,14 +2347,18 @@
             // canvas is fixed (always visible) — only the tab-visibility handler pauses it
             /* ---------- Reduced motion: one static frame ---------- */
             function renderStatic() {
-                charGroup.scale.setScalar(layoutScale);
-                charGroup.position.set(baseX, baseY, 0);
+                updateDock();
+                charGroup.scale.setScalar(layoutScale * targetDockScale);
+                charGroup.position.set(targetX, targetY, 0);
                 charGroup.rotation.set(0, -0.18, 0);
                 if (mixer) mixer.update(0.12);
                 renderer.domElement.style.opacity = '1';
                 renderer.render(scene, camera);
             }
             /* ---------- Events ---------- */
+            window.addEventListener('scroll', () => {
+                if (reducedMotion && modelReady) renderStatic();
+            }, { passive: true });
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
