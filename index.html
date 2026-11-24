@@ -1286,7 +1286,7 @@
     </section>
     <!-- 3D character: fixed full-page background (visible in every section) -->
     <div class="scene3d" id="scene3d" aria-hidden="true"></div>
-    <div class="scene3d-status" id="scene3dStatus"><span class="dot"></span><span id="scene3dStatusText">3D · BOOTING</span></div>
+    <div class="scene3d-status" id="scene3dStatus"><span class="dot"></span><span id="scene3dStatusText">3D · BOOTING · v2</span></div>
     <!-- ============ TECH MARQUEE ============ -->
     <div class="marquee" aria-hidden="true">
         <div class="marquee-track" id="marqueeTrack">
@@ -1992,6 +1992,7 @@
             host.appendChild(renderer.domElement);
             const statusEl = document.getElementById('scene3dStatus');
             const statusText = document.getElementById('scene3dStatusText');
+            const BUILD = 'v2';
             function set3dStatus(state, text) {
                 if (!statusEl) return;
                 statusEl.classList.remove('online', 'error');
@@ -2092,6 +2093,15 @@
             haloSprite.scale.set(6, 6, 1);
             haloSprite.position.set(0, 0.2, -1.2);
             charGroup.add(haloSprite);
+            /* Glowing robot core — unlit, always visible at the character's chest */
+            const chestGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: makeGlowTexture('0,229,255'),
+                transparent: true, opacity: 0.4,
+                depthWrite: false, blending: THREE.AdditiveBlending
+            }));
+            chestGlow.scale.set(1.7, 1.7, 1);
+            chestGlow.position.set(0, 0.35, 0.5);
+            charGroup.add(chestGlow);
             const rig = new THREE.Group();
             charGroup.add(rig);
             /* ---------- Cinematic light cone ---------- */
@@ -2142,7 +2152,16 @@
                 const s = TARGET_HEIGHT / size.y;
                 model.scale.setScalar(s);
                 model.position.y = GROUND_Y - box.min.y * s;
-                model.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+                model.traverse((o) => {
+                    if (o.isMesh) {
+                        o.castShadow = true;
+                        const mats = Array.isArray(o.material) ? o.material : [o.material];
+                        mats.forEach((m) => {
+                            if (m && m.metalness !== undefined) m.metalness = Math.min(m.metalness, 0.25);
+                            if (m && m.roughness !== undefined) m.roughness = Math.max(m.roughness, 0.35);
+                        });
+                    }
+                });
                 rig.add(model);
                 mixer = new THREE.AnimationMixer(model);
                 (gltf.animations || []).forEach((clip) => {
@@ -2168,14 +2187,14 @@
                 } else {
                     tryEntrance();
                 }
-                set3dStatus('online', '3D · ONLINE');
+                set3dStatus('online', '3D · ONLINE · ' + BUILD);
                 } catch (err) {
                     console.error('3D character setup failed:', err);
-                    set3dStatus('error', '3D · ERROR');
+                    set3dStatus('error', '3D · ERROR · ' + BUILD);
                 }
             }, undefined, (err) => {
                 console.warn('3D character failed to load:', err);
-                set3dStatus('error', '3D · OFFLINE');
+                set3dStatus('error', '3D · OFFLINE · ' + BUILD);
             });
             /* ---------- Animation state machine ---------- */
             function crossTo(name, duration) {
